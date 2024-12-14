@@ -1,0 +1,68 @@
+import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+
+function App() {
+  const mountRef = useRef(null);
+
+  useEffect(() => {
+    // Crear la escena
+    const scene = new THREE.Scene();
+
+    // Crear la cámara
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+    // Crear el renderizador
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    mountRef.current.appendChild(renderer.domElement);
+
+    // Cargar la textura de la imagen desde la carpeta public
+    const textureLoader = new THREE.TextureLoader();
+    const texture = textureLoader.load('/textures/cube-texture.jpg'); // Ruta a la imagen en la carpeta public
+
+    // Crear un cubo con material que responda a la luz y con textura
+    const geometry = new THREE.BoxGeometry(2, 2, 2); // Tamaño del cubo (más grande)
+    const material = new THREE.MeshStandardMaterial({ map: texture }); // Asignamos la textura al material
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    // Agregar una luz direccional
+    const light = new THREE.DirectionalLight(0xffffff, 1); // Luz blanca
+    light.position.set(5, 5, 5).normalize();  // Posicionar la luz
+    scene.add(light);
+
+    // Agregar una luz ambiental
+    const ambientLight = new THREE.AmbientLight(0x404040, 1); // Luz ambiental suave
+    scene.add(ambientLight);
+
+    // Control de la cámara con OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    camera.position.z = 7; // Cambiar la posición de la cámara para ajustar la vista del cubo
+
+    // Animación
+    const animate = () => {
+      requestAnimationFrame(animate);
+
+      // Rotación del cubo
+      cube.rotation.x += 0.01;
+      cube.rotation.y += 0.01;
+
+      // Actualizar controles
+      controls.update();
+
+      // Renderizar la escena
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    // Limpiar la escena cuando el componente se desmonte
+    return () => {
+      mountRef.current.removeChild(renderer.domElement);
+    };
+  }, []);
+
+  return <div ref={mountRef}></div>;
+}
+
+export default App;
