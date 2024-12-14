@@ -4,49 +4,44 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 function App() {
   const mountRef = useRef(null);
-  const [currentTexture, setCurrentTexture] = useState(0); // Estado para manejar el índice de la textura
-  const [transitioning, setTransitioning] = useState(false); // Estado para controlar la transición de la imagen
-  const textureChangeRef = useRef(false); // Ref para controlar el cambio de fondo
+  const [currentTexture, setCurrentTexture] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const textureChangeRef = useRef(false);
 
   const backgroundTextures = [
-    '/background/background1.jpg', // Ruta de la imagen 1 en la carpeta public/background
-    '/background/background2.jpg', // Ruta de la imagen 2
-    '/background/background3.jpg'  // Ruta de la imagen 3
+    '/background/background1.jpg',
+    '/background/background2.jpg',
+    '/background/background3.jpg',
   ];
 
-  const cubeTexturePath = '/textures/cube-texture.jpg';  // Textura para el cubo
+  const cubeTexturePath = '/textures/cube-texture.jpg';
 
-  const cubeRef = useRef(null);  // Referencia para el cubo
-  const sceneRef = useRef(null);  // Referencia para la escena
-  const rendererRef = useRef(null); // Referencia para el renderizador
-  const cameraRef = useRef(null);  // Referencia para la cámara
-  const backgroundRef = useRef(null); // Referencia para el fondo
+  const cubeRef = useRef(null);
+  const sceneRef = useRef(null);
+  const rendererRef = useRef(null);
+  const cameraRef = useRef(null);
+  const backgroundRefs = useRef([]);
 
   useEffect(() => {
-    // Crear la escena y la cámara (se ejecuta una sola vez)
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 7;
     sceneRef.current = scene;
     cameraRef.current = camera;
 
-    // Crear el renderizador
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Agregar controles de la cámara
     const controls = new OrbitControls(camera, renderer.domElement);
 
-    // Agregar luces
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(5, 5, 5).normalize();
     scene.add(light);
     const ambientLight = new THREE.AmbientLight(0x404040, 1);
     scene.add(ambientLight);
 
-    // Guardar referencias para usar en la animación
     const textureLoader = new THREE.TextureLoader();
     const cubeTexture = textureLoader.load(cubeTexturePath);
     const cubeGeometry = new THREE.BoxGeometry(2, 2, 2);
@@ -55,7 +50,23 @@ function App() {
     scene.add(cube);
     cubeRef.current = cube;
 
-    // Función para actualizar el tamaño de la ventana
+    const planeGeometry = new THREE.PlaneGeometry(50, 50);
+
+    // Crear dos materiales y planos de fondo
+    const material1 = new THREE.MeshBasicMaterial({ map: textureLoader.load(backgroundTextures[0]), transparent: true, opacity: 1 });
+    const material2 = new THREE.MeshBasicMaterial({ map: textureLoader.load(backgroundTextures[1]), transparent: true, opacity: 0 });
+
+    const background1 = new THREE.Mesh(planeGeometry, material1);
+    const background2 = new THREE.Mesh(planeGeometry, material2);
+
+    background1.position.z = -10;
+    background2.position.z = -10;
+
+    scene.add(background1);
+    scene.add(background2);
+
+    backgroundRefs.current = [material1, material2];
+
     const handleResize = () => {
       const width = window.innerWidth;
       const height = window.innerHeight;
@@ -64,85 +75,65 @@ function App() {
       camera.updateProjectionMatrix();
     };
 
-    // Listener para resize
     window.addEventListener('resize', handleResize);
 
-    // Retornar función de limpieza
     return () => {
       window.removeEventListener('resize', handleResize);
       mountRef.current.removeChild(renderer.domElement);
     };
-  }, []); // Solo se ejecuta una vez cuando el componente se monta
+  }, []);
 
-  // Función para cambiar el fondo
   const changeBackground = () => {
-    // Cambiar fondo cada 5 segundos
-    if (textureChangeRef.current) return; // Prevenir cambios múltiples simultáneos
-    textureChangeRef.current = true;
-    setTimeout(() => {
-      // Actualizar el estado de la textura
-      setCurrentTexture((prevIndex) => (prevIndex + 1) % backgroundTextures.length);
-      textureChangeRef.current = false; // Permitir nuevos cambios de fondo
-    }, 1000); // Esperar 1 segundo antes de permitir un cambio
+    if (textureChangeRef.current || isTransitioning) return;
+    setIsTransitioning(true);
+
+    const materials = backgroundRefs.current;
+    const nextTexture = (currentTexture + 1) % backgroundTextures.length;
+
+    const textureLoader = new THREE.TextureLoader();
+    const newTexture = textureLoader.load(backgroundTextures[nextTexture]);
+    materials[nextTexture % 2].map = newTexture;
+
+    // Animar opacidad para hacer el fade
+    let progress = 0;
+    const fadeInterval = setInterval(() => {
+      progress += 0.02;
+      materials[currentTexture % 2].opacity = 1 - progress; // Fade out del material actual
+      materials[nextTexture % 2].opacity = progress;       // Fade in del siguiente material
+
+      if (progress >= 1) {
+        clearInterval(fadeInterval);
+        setCurrentTexture(nextTexture);
+        setIsTransitioning(false);
+      }
+    }, 16); // Aproximadamente 60 FPS
   };
 
   useEffect(() => {
-    // Este useEffect solo se ocupa de cambiar el fondo cuando currentTexture cambia
-    const textureLoader = new THREE.TextureLoader();
-    const backgroundTexture = textureLoader.load(backgroundTextures[currentTexture]);
-    backgroundTexture.minFilter = THREE.LinearFilter;
-
-    const backgroundMaterial = new THREE.MeshBasicMaterial({ map: backgroundTexture });
-    const planeGeometry = new THREE.PlaneGeometry(50, 50); // Tamaño grande para el fondo
-    const background = new THREE.Mesh(planeGeometry, backgroundMaterial);
-    background.position.z = -10;
-
-    // Guardar la referencia al fondo
-    backgroundRef.current = background;
-
-    // Agregar el fondo a la escena
-    const scene = sceneRef.current;
-    scene.add(background);
-
-    // Limpiar el fondo anterior cuando se cambie la textura
-    return () => {
-      const scene = sceneRef.current;
-      scene.remove(backgroundRef.current); // Eliminar el fondo anterior antes de agregar uno nuevo
-    };
-  }, [currentTexture]); // Solo se ejecuta cuando currentTexture cambia
-
-  useEffect(() => {
-    // Cambiar fondo cada 5 segundos
     const intervalId = setInterval(() => {
-      if (!textureChangeRef.current) changeBackground();
-    }, 5000); // Cambiar fondo cada 5 segundos
+      if (!textureChangeRef.current && !isTransitioning) changeBackground();
+    }, 5000);
 
-    return () => clearInterval(intervalId); // Limpiar el intervalo cuando el componente se desmonte
-  }, []);
+    return () => clearInterval(intervalId);
+  }, [currentTexture, isTransitioning]);
 
   useEffect(() => {
-    // Función de animación continua del cubo
     const animate = () => {
       requestAnimationFrame(animate);
 
-      // Rotación continua del cubo
       if (cubeRef.current) {
         cubeRef.current.rotation.x += 0.01;
         cubeRef.current.rotation.y += 0.01;
       }
 
-      // Renderizar la escena
       const scene = sceneRef.current;
       const camera = cameraRef.current;
       const renderer = rendererRef.current;
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.update();
       renderer.render(scene, camera);
     };
 
-    animate(); // Iniciar la animación del cubo
-
-  }, []); // Se ejecuta solo una vez para iniciar la animación del cubo
+    animate();
+  }, []);
 
   return <div ref={mountRef}></div>;
 }
