@@ -1,27 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 function App() {
   const mountRef = useRef(null);
-  const [currentTextureIndex, setCurrentTextureIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
 
   const backgroundTextures = [
     '/background/background1.jpg',
     '/background/background2.jpg',
     '/background/background3.jpg',
   ];
-
   const cubeTexturePath = '/textures/cube-texture.jpg';
 
-  const sceneRef = useRef(null);
-  const rendererRef = useRef(null);
-  const cameraRef = useRef(null);
-  const planeRef = useRef(null);
-  const cubeRef = useRef(null);
-
   useEffect(() => {
+    let currentTextureIndex = 0;
+    let mixAmount = 0;
+    const clock = new THREE.Clock(); // Reloj para manejar el tiempo constante
+    let isTransitioning = false;
+
     // Configuración básica de Three.js
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -31,12 +27,8 @@ function App() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     mountRef.current.appendChild(renderer.domElement);
 
-    sceneRef.current = scene;
-    rendererRef.current = renderer;
-    cameraRef.current = camera;
-
     // Controles
-    const controls = new OrbitControls(camera, renderer.domElement);
+    new OrbitControls(camera, renderer.domElement);
 
     // Iluminación
     const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -46,27 +38,24 @@ function App() {
     const ambientLight = new THREE.AmbientLight(0x404040, 1);
     scene.add(ambientLight);
 
-    // Textura del cubo
+    // Cargar textura del cubo
     const textureLoader = new THREE.TextureLoader();
     const cubeTexture = textureLoader.load(cubeTexturePath);
-
-    const cubeGeometry = new THREE.BoxGeometry(2, 2, 2);
-    const cubeMaterial = new THREE.MeshStandardMaterial({ map: cubeTexture });
-    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+    const cube = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 2, 2),
+      new THREE.MeshStandardMaterial({ map: cubeTexture })
+    );
     scene.add(cube);
-    cubeRef.current = cube;
 
-    // Shader material para el fondo
+    // Material del fondo (Shader)
     const planeGeometry = new THREE.PlaneGeometry(50, 50);
     const initialTexture = textureLoader.load(backgroundTextures[currentTextureIndex]);
-    const nextTexture = textureLoader.load(backgroundTextures[(currentTextureIndex + 1) % backgroundTextures.length]);
-
     const planeMaterial = new THREE.ShaderMaterial({
       uniforms: {
         u_time: { value: 0 },
         u_texture1: { value: initialTexture },
-        u_texture2: { value: nextTexture },
-        u_mixAmount: { value: 0 }, // Control de transición
+        u_texture2: { value: null },
+        u_mixAmount: { value: 0 },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -87,7 +76,7 @@ function App() {
 
           // Distorsión líquida
           float distortX = sin(uv.y * 10.0 + u_time) * 0.05;
-          float distortY = cos(uv.x * 10.0 + u_time) * 0.05;
+          float distortY = cos(uv.x * 10.0 + u_time) * 1.05;
           uv.x += distortX;
           uv.y += distortY;
 
@@ -105,75 +94,51 @@ function App() {
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
     plane.position.z = -10;
     scene.add(plane);
-    planeRef.current = plane;
 
-    // Manejar redimensionamiento
-    const handleResize = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      renderer.setSize(width, height);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+    // Función para manejar la transición de fondos
+    const startTransition = () => {
+      if (isTransitioning) return;
+      isTransitioning = true;
+
+      const nextTextureIndex = (currentTextureIndex + 1) % backgroundTextures.length;
+      const nextTexture = textureLoader.load(backgroundTextures[nextTextureIndex]);
+      planeMaterial.uniforms.u_texture2.value = nextTexture;
+
+      mixAmount = 0;
+
+      // Lógica de mezcla integrada en la animación principal
+      const updateTransition = () => {
+        mixAmount += 0.01;
+        planeMaterial.uniforms.u_mixAmount.value = mixAmount;
+
+        if (mixAmount >= 1) {
+          isTransitioning = false;
+          planeMaterial.uniforms.u_texture1.value = nextTexture;
+          planeMaterial.uniforms.u_mixAmount.value = 0;
+          currentTextureIndex = nextTextureIndex;
+        }
+      };
+
+      return updateTransition;
     };
 
-    window.addEventListener('resize', handleResize);
+    let transitionUpdate = null;
 
-    // Cleanup
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      mountRef.current.removeChild(renderer.domElement);
-    };
-  }, []);
-
-  const changeBackground = () => {
-    if (isTransitioning) return;
-    setIsTransitioning(true);
-
-    const plane = planeRef.current;
-    const textureLoader = new THREE.TextureLoader();
-    const nextTextureIndex = (currentTextureIndex + 1) % backgroundTextures.length;
-    const newTexture = textureLoader.load(backgroundTextures[nextTextureIndex]);
-
-    // Actualizar textura secundaria en el shader
-    plane.material.uniforms.u_texture2.value = newTexture;
-
-    let mixAmount = 0;
-
-    const fadeTransition = setInterval(() => {
-      mixAmount += 0.02;
-      plane.material.uniforms.u_mixAmount.value = mixAmount;
-      plane.material.uniforms.u_time.value += 0.05; // Movimiento líquido constante
-
-      if (mixAmount >= 1) {
-        clearInterval(fadeTransition);
-
-        // Configurar la nueva textura como principal
-        plane.material.uniforms.u_texture1.value = newTexture;
-        plane.material.uniforms.u_mixAmount.value = 0;
-
-        setCurrentTextureIndex(nextTextureIndex);
-        setIsTransitioning(false);
-      }
-    }, 16); // 60 FPS
-  };
-
-  useEffect(() => {
     // Animación principal
     const animate = () => {
       requestAnimationFrame(animate);
 
-      if (cubeRef.current) {
-        cubeRef.current.rotation.x += 0.01;
-        cubeRef.current.rotation.y += 0.01;
-      }
+      const deltaTime = clock.getDelta(); // Tiempo constante entre frames
 
-      const scene = sceneRef.current;
-      const camera = cameraRef.current;
-      const renderer = rendererRef.current;
+      // Rotación del cubo
+      cube.rotation.x += 0.5 * deltaTime;
+      cube.rotation.y += 0.5 * deltaTime;
 
-      if (planeRef.current) {
-        planeRef.current.material.uniforms.u_time.value += 0.01; // Actualización del efecto líquido
-      }
+      // Actualización del shader
+      planeMaterial.uniforms.u_time.value += deltaTime;
+
+      // Manejar transición si está activa
+      if (transitionUpdate) transitionUpdate();
 
       renderer.render(scene, camera);
     };
@@ -182,13 +147,25 @@ function App() {
 
     // Cambio de fondo cada 5 segundos
     const interval = setInterval(() => {
-      if (!isTransitioning) changeBackground();
+      transitionUpdate = startTransition();
     }, 5000);
 
-    return () => clearInterval(interval);
-  }, [currentTextureIndex, isTransitioning]);
+    // Manejar redimensionamiento
+    const handleResize = () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', handleResize);
 
-  return <div ref={mountRef}></div>;
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('resize', handleResize);
+      mountRef.current.removeChild(renderer.domElement);
+    };
+  }, []);
+
+  return <div ref={mountRef} />;
 }
 
 export default App;
