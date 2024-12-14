@@ -4,21 +4,24 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 function App() {
   const mountRef = useRef(null);
+  const audioRef = useRef(null);
+  const analyserRef = useRef(null);
+  const audioStartedRef = useRef(false);
 
   const backgroundTextures = [
     '/background/background1.jpg',
     '/background/background2.jpg',
     '/background/background3.jpg',
   ];
-  const cubeTexturePath = '/textures/cube-texture.jpg';
+
+  const audioPath = '/thetrue.mp3';
 
   useEffect(() => {
     let currentTextureIndex = 0;
     let mixAmount = 0;
-    const clock = new THREE.Clock(); // Reloj para manejar el tiempo constante
+    const clock = new THREE.Clock();
     let isTransitioning = false;
 
-    // Configuración básica de Three.js
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 7;
@@ -27,10 +30,8 @@ function App() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     mountRef.current.appendChild(renderer.domElement);
 
-    // Controles
     new OrbitControls(camera, renderer.domElement);
 
-    // Iluminación
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(5, 5, 5).normalize();
     scene.add(light);
@@ -38,16 +39,14 @@ function App() {
     const ambientLight = new THREE.AmbientLight(0x404040, 1);
     scene.add(ambientLight);
 
-    // Cargar textura del cubo
     const textureLoader = new THREE.TextureLoader();
-    const cubeTexture = textureLoader.load(cubeTexturePath);
+    const cubeTexture = textureLoader.load('/textures/cube-texture.jpg');
     const cube = new THREE.Mesh(
       new THREE.BoxGeometry(2, 2, 2),
       new THREE.MeshStandardMaterial({ map: cubeTexture })
     );
     scene.add(cube);
 
-    // Material del fondo (Shader)
     const planeGeometry = new THREE.PlaneGeometry(50, 50);
     const initialTexture = textureLoader.load(backgroundTextures[currentTextureIndex]);
     const planeMaterial = new THREE.ShaderMaterial({
@@ -73,14 +72,11 @@ function App() {
 
         void main() {
           vec2 uv = vUv;
-
-          // Distorsión líquida
           float distortX = sin(uv.y * 10.0 + u_time) * 0.05;
           float distortY = cos(uv.x * 10.0 + u_time) * 1.05;
           uv.x += distortX;
           uv.y += distortY;
 
-          // Mezcla entre texturas
           vec4 tex1 = texture2D(u_texture1, uv);
           vec4 tex2 = texture2D(u_texture2, uv);
           vec4 color = mix(tex1, tex2, u_mixAmount);
@@ -95,7 +91,42 @@ function App() {
     plane.position.z = -10;
     scene.add(plane);
 
-    // Función para manejar la transición de fondos
+    const listener = new THREE.AudioListener();
+    camera.add(listener);
+
+    const audioLoader = new THREE.AudioLoader();
+    const sound = new THREE.Audio(listener);
+    const analyser = new THREE.AudioAnalyser(sound, 32);
+    analyserRef.current = analyser;
+
+    const startAudio = () => {
+      if (audioStartedRef.current) return; // Evitar múltiples inicios
+      audioStartedRef.current = true;
+
+      audioLoader.load(audioPath, (buffer) => {
+        sound.setBuffer(buffer);
+        sound.setLoop(true);
+        sound.setVolume(0.5);
+        sound.play();
+      });
+    };
+
+    // Evento para iniciar el audio al hacer clic en el cubo
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const handleMouseClick = (event) => {
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects([cube]);
+      if (intersects.length > 0) {
+        startAudio();
+      }
+    };
+
+    window.addEventListener('click', handleMouseClick);
+
     const startTransition = () => {
       if (isTransitioning) return;
       isTransitioning = true;
@@ -106,7 +137,6 @@ function App() {
 
       mixAmount = 0;
 
-      // Lógica de mezcla integrada en la animación principal
       const updateTransition = () => {
         mixAmount += 0.01;
         planeMaterial.uniforms.u_mixAmount.value = mixAmount;
@@ -124,20 +154,22 @@ function App() {
 
     let transitionUpdate = null;
 
-    // Animación principal
     const animate = () => {
       requestAnimationFrame(animate);
 
-      const deltaTime = clock.getDelta(); // Tiempo constante entre frames
+      const deltaTime = clock.getDelta();
 
-      // Rotación del cubo
       cube.rotation.x += 0.5 * deltaTime;
       cube.rotation.y += 0.5 * deltaTime;
 
-      // Actualización del shader
+      if (analyserRef.current) {
+        const frequency = analyserRef.current.getAverageFrequency();
+        const scale = 1 + frequency / 256;
+        cube.scale.set(scale, scale, scale);
+      }
+
       planeMaterial.uniforms.u_time.value += deltaTime;
 
-      // Manejar transición si está activa
       if (transitionUpdate) transitionUpdate();
 
       renderer.render(scene, camera);
@@ -145,12 +177,10 @@ function App() {
 
     animate();
 
-    // Cambio de fondo cada 5 segundos
     const interval = setInterval(() => {
       transitionUpdate = startTransition();
     }, 5000);
 
-    // Manejar redimensionamiento
     const handleResize = () => {
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -161,6 +191,7 @@ function App() {
     return () => {
       clearInterval(interval);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('click', handleMouseClick);
       mountRef.current.removeChild(renderer.domElement);
     };
   }, []);
