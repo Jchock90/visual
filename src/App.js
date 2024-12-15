@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 
 function App() {
   const mountRef = useRef(null);
@@ -32,6 +33,7 @@ function App() {
 
     new OrbitControls(camera, renderer.domElement);
 
+    // Luces
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(5, 5, 5).normalize();
     scene.add(light);
@@ -39,14 +41,8 @@ function App() {
     const ambientLight = new THREE.AmbientLight(0x404040, 1);
     scene.add(ambientLight);
 
+    // Fondo con ShaderMaterial
     const textureLoader = new THREE.TextureLoader();
-    const cubeTexture = textureLoader.load('/textures/cube-texture.jpg');
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 2, 2),
-      new THREE.MeshStandardMaterial({ map: cubeTexture })
-    );
-    scene.add(cube);
-
     const planeGeometry = new THREE.PlaneGeometry(50, 50);
     const initialTexture = textureLoader.load(backgroundTextures[currentTextureIndex]);
     const planeMaterial = new THREE.ShaderMaterial({
@@ -91,16 +87,35 @@ function App() {
     plane.position.z = -10;
     scene.add(plane);
 
+    // Cargar modelo 3D (lotus.obj) como wireframe
+    const objLoader = new OBJLoader();
+    const wireframeMaterial = new THREE.MeshBasicMaterial({ 
+      color: 0xff69b4, // Color blanco para las líneas
+      wireframe: true // Activa el wireframe
+    });
+    let model = null;
+
+    objLoader.load('/models/lotus.obj', (object) => {
+      object.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = wireframeMaterial;
+        }
+      });
+      model = object;
+      object.scale.set(0.5, 0.5, 0.5);
+      scene.add(object);
+    });
+
+    // Audio
     const listener = new THREE.AudioListener();
     camera.add(listener);
-
     const audioLoader = new THREE.AudioLoader();
     const sound = new THREE.Audio(listener);
     const analyser = new THREE.AudioAnalyser(sound, 32);
     analyserRef.current = analyser;
 
     const startAudio = () => {
-      if (audioStartedRef.current) return; // Evitar múltiples inicios
+      if (audioStartedRef.current) return;
       audioStartedRef.current = true;
 
       audioLoader.load(audioPath, (buffer) => {
@@ -111,7 +126,6 @@ function App() {
       });
     };
 
-    // Evento para iniciar el audio al hacer clic en el cubo
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const handleMouseClick = (event) => {
@@ -119,14 +133,17 @@ function App() {
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects([cube]);
-      if (intersects.length > 0) {
-        startAudio();
+      if (model) {
+        const intersects = raycaster.intersectObject(model, true);
+        if (intersects.length > 0) {
+          startAudio();
+        }
       }
     };
 
     window.addEventListener('click', handleMouseClick);
 
+    // Transiciones de fondo
     const startTransition = () => {
       if (isTransitioning) return;
       isTransitioning = true;
@@ -158,14 +175,15 @@ function App() {
       requestAnimationFrame(animate);
 
       const deltaTime = clock.getDelta();
+      if (model) {
+        model.rotation.x += 0.5 * deltaTime;
+        model.rotation.y += 0.5 * deltaTime;
 
-      cube.rotation.x += 0.5 * deltaTime;
-      cube.rotation.y += 0.5 * deltaTime;
-
-      if (analyserRef.current) {
-        const frequency = analyserRef.current.getAverageFrequency();
-        const scale = 1 + frequency / 256;
-        cube.scale.set(scale, scale, scale);
+        if (analyserRef.current) {
+          const frequency = analyserRef.current.getAverageFrequency();
+          const scale = 1 + frequency / 256;
+          model.scale.set(scale, scale, scale);
+        }
       }
 
       planeMaterial.uniforms.u_time.value += deltaTime;
